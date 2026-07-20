@@ -82,44 +82,6 @@ grant delete, insert, select, update on zms.zms_zpf_sku_pick_day_stores to rms_r
 grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_zpf_sku_pick_day_stores to rms_user;
 grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_zpf_sku_pick_day_stores to zmsbatch;
 
-drop table zms.zms_zpf_sku_store_override; 
-create table zms.zms_zpf_sku_store_override
-( wh           number(10),
-  sku          varchar2(10 byte),
-  store        number(10), 
-  div          number(3),
-  data_source  varchar2(10 byte),
-  indicator    varchar2(1 byte)
-) ; 
-create index zms.zms_zpf_sku_store_override_i1 on zms.zms_zpf_sku_store_override(wh, sku,store) ; 
-create or replace public synonym zms_zpf_sku_store_override for zms.zms_zpf_sku_store_override;  
-grant select on zms.zms_zpf_sku_store_override to esb_default_ro_role;  
-grant select on zms.zms_zpf_sku_store_override to infa_ro; 
-grant delete, insert, select, update on zms.zms_zpf_sku_store_override to infa_rw; 
-grant delete, insert, select, update on zms.zms_zpf_sku_store_override to rms_role; 
-grant delete, insert, select, update on zms.zms_zpf_sku_store_override to rms_role_temp; 
-grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_zpf_sku_store_override to rms_user; 
-grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_zpf_sku_store_override to zmsbatch; 
- 
-drop table zms.zms_ppf_sku_store_override; 
-create table zms.zms_ppf_sku_store_override
-( wh           number(10),
-  sku          varchar2(10 byte),
-  store        number(10), 
-  div          number(3),
-  data_source  varchar2(10 byte),
-  indicator    varchar2(1 byte)
-) ; 
-create index zms.zms_ppf_sku_store_override_i1 on zms.zms_ppf_sku_store_override(wh, sku,store) ; 
-create or replace public synonym zms_ppf_sku_store_override for zms.zms_ppf_sku_store_override;  
-grant select on zms.zms_ppf_sku_store_override to esb_default_ro_role;  
-grant select on zms.zms_ppf_sku_store_override to infa_ro; 
-grant delete, insert, select, update on zms.zms_ppf_sku_store_override to infa_rw; 
-grant delete, insert, select, update on zms.zms_ppf_sku_store_override to rms_role; 
-grant delete, insert, select, update on zms.zms_ppf_sku_store_override to rms_role_temp; 
-grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_ppf_sku_store_override to rms_user; 
-grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_ppf_sku_store_override to zmsbatch; 
-/
 ---New Tables for KJF Brand--
 drop table zms.zms_kjo_wh_control cascade constraints; 
 create table zms.zms_kjo_wh_control
@@ -306,6 +268,19 @@ grant select on zms.zms_kjo_pick_day_stores to infa_ro;
 grant delete, insert, select, update on zms.zms_kjo_pick_day_stores to infa_rw;
 grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_kjo_pick_day_stores to zmsbatch;
 
+drop table zms.zms_zpf_fm_stores cascade constraints;
+create table zms.zms_zpf_fm_stores
+(
+  store        number(10), 
+  dist_type    varchar2(6 byte)
+) ; 
+
+create index zms.zms_zpf_fm_stores_i1 on zms.zms_zpf_fm_stores(store) ;
+create or replace public synonym zms_zpf_fm_stores for zms.zms_zpf_fm_stores;
+grant select on zms.zms_zpf_fm_stores to infa_ro;
+grant delete, insert, select, update on zms.zms_zpf_fm_stores to infa_rw;
+grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_zpf_fm_stores to zmsbatch;
+ 
 
 drop table zms.zms_kjo_div_extract_bk cascade constraints;
 create table zms.zms_kjo_div_extract_bk
@@ -410,6 +385,43 @@ grant delete, insert, select, update on zms.zms_kjo_loc_restriction to infa_rw;
 grant delete, insert, select, update on zms.zms_kjo_loc_restriction to rms_role;
 grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_kjo_loc_restriction to rms_user;
 grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_kjo_loc_restriction to zmsbatch;
-
-
  
+ 
+---New Tables for SKU and DEPT Store and store_group--
+drop table zms.zms_zpf_sku_store_ovrd; 
+create table zms.zms_zpf_sku_store_ovrd
+( wh           number(10),
+  sku          varchar2(10 byte),
+  store        number(10), 
+  data_source  varchar2(10 byte),
+  indicator    varchar2(1 byte)
+) ; 
+create index zms.zms_zpf_sku_store_ovrd_i1 on zms.zms_zpf_sku_store_ovrd(wh,sku,store) ;  
+create or replace public synonym zms_zpf_sku_store_ovrd for zms.zms_zpf_sku_store_ovrd;  
+grant select on zms.zms_zpf_sku_store_ovrd to esb_default_ro_role;  
+grant select on zms.zms_zpf_sku_store_ovrd to infa_ro; 
+grant delete, insert, select, update on zms.zms_zpf_sku_store_ovrd to infa_rw; 
+grant delete, insert, select, update on zms.zms_zpf_sku_store_ovrd to rms_role; 
+grant delete, insert, select, update on zms.zms_zpf_sku_store_ovrd to rms_role_temp; 
+grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_zpf_sku_store_ovrd to rms_user; 
+grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_zpf_sku_store_ovrd to zmsbatch;
+
+
+---New Tables for SKU and DEPT Store and store_group--
+drop table zms.zms_zpf_sku_group_ovrd; 
+create table zms.zms_zpf_sku_group_ovrd
+( wh           number(10),
+  sku          varchar2(10 byte), 
+  store_group  varchar2(50),
+  data_source  varchar2(10 byte),
+  indicator    varchar2(1 byte)
+) ; 
+create index zms.zms_zpf_sku_group_ovrd_i1 on zms.zms_zpf_sku_group_ovrd(wh,sku,store_group) ;  
+create or replace public synonym zms_zpf_sku_group_ovrd for zms.zms_zpf_sku_group_ovrd;  
+grant select on zms.zms_zpf_sku_group_ovrd to esb_default_ro_role;  
+grant select on zms.zms_zpf_sku_group_ovrd to infa_ro; 
+grant delete, insert, select, update on zms.zms_zpf_sku_group_ovrd to infa_rw; 
+grant delete, insert, select, update on zms.zms_zpf_sku_group_ovrd to rms_role; 
+grant delete, insert, select, update on zms.zms_zpf_sku_group_ovrd to rms_role_temp; 
+grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_zpf_sku_group_ovrd to rms_user; 
+grant alter, delete, index, insert, references, select, update, on commit refresh, query rewrite, debug, flashback on zms.zms_zpf_sku_group_ovrd to zmsbatch;

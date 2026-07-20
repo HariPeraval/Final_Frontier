@@ -1081,6 +1081,7 @@ PROCEDURE p_zpf_div_extract_init (p_is_forecast IN BOOLEAN,
    l_sysdate  DATE    := SYSDATE;
    l_pick_cnt NUMBER := 0;
    l_pick_2_cnt  NUMBER := 0;
+   l_pick_3_cnt  NUMBER := 0;
    l_store_groups   VARCHAR2(1000);
    O_error_message  VARCHAR2(2000);
    no_pick   EXCEPTION;
@@ -1125,18 +1126,21 @@ BEGIN
     EXECUTE IMMEDIATE 'truncate table zms_temp_dept_stor_group_ovrd  drop storage';
     EXECUTE IMMEDIATE 'truncate table zms_zpf_sku_str_replenishment drop storage';
     EXECUTE IMMEDIATE 'truncate table zms_zpf_sku_PICK_DAY_STORES drop storage';
-    EXECUTE IMMEDIATE 'truncate table zms_zpf_sku_store_override drop storage';
-    EXECUTE IMMEDIATE 'truncate table zms_ppf_sku_store_override drop storage'; 
+    --EXECUTE IMMEDIATE 'truncate table zms_zpf_sku_store_override drop storage';
+    --EXECUTE IMMEDIATE 'truncate table zms_ppf_sku_store_override drop storage'; 
     
     EXECUTE IMMEDIATE 'truncate table zms_kjo_win_wh drop storage';
     EXECUTE IMMEDIATE 'truncate table zms_kjo_win_wh1 drop storage'; 
     EXECUTE IMMEDIATE 'truncate table zms_kjo_store_pick_priority drop storage';
-    EXECUTE IMMEDIATE 'truncate table zms_kjo_sku_store_override drop storage'; 
+    --EXECUTE IMMEDIATE 'truncate table zms_kjo_sku_store_override drop storage'; 
     EXECUTE IMMEDIATE 'truncate table zms_kjo_div_extract drop storage';  
-    EXECUTE IMMEDIATE 'truncate table zms_kjo_div_extract_bk drop storage';  
+    --EXECUTE IMMEDIATE 'truncate table zms_kjo_div_extract_bk drop storage';  
     EXECUTE IMMEDIATE 'truncate table zms_kjo_main_sub drop storage';  
     EXECUTE IMMEDIATE 'truncate table zms_kjo_pick_day_stores drop storage';  
-    EXECUTE IMMEDIATE 'truncate table zms_kjo_nopick_report drop storage';  	
+    EXECUTE IMMEDIATE 'truncate table zms_kjo_nopick_report drop storage';      
+
+    EXECUTE IMMEDIATE 'truncate table zms_zpf_sku_store_ovrd drop storage';  
+    EXECUTE IMMEDIATE 'truncate table zms_zpf_sku_group_ovrd drop storage';  
 
     --==== END New Code--05042026====
     utl_file.put_line(g_log_fptr, (TO_CHAR(SYSDATE, 'hh24:mi:ss')||' -    Tables Truncated:'));
@@ -1706,8 +1710,10 @@ BEGIN
      WHERE so.sku = pid.sku
        AND so.wh    = wc.pick_wh
        AND wc.active_flag = 'Y'
-     ORDER BY so.wh, so.sku;   
-
+     ORDER BY so.wh, so.sku; 
+     
+    COMMIT;
+    
     MERGE INTO zms_zpf_sku_store_group_ovrd zso USING
     (SELECT DISTINCT so.wh, sid.item sku,so.store,so.store_group, so.indicator
        FROM zms_zpf_sku_store_group_ovrd so, sub_items_detail sid
@@ -1717,7 +1723,9 @@ BEGIN
     WHEN NOT MATCHED THEN INSERT
         (wh, sku,store,store_group, data_source, indicator)
     VALUES (dt.wh, dt.sku,dt.store,dt.store_group, 'SUB', 'Y');   
-  
+     
+    COMMIT;
+      
     INSERT INTO zms_temp_dept_stor_group_ovrd
                (wh, division, dept, class, subclass,store,store_group, indicator)
     SELECT DISTINCT do.wh, do.division, do.dept, do.class, do.subclass, do.store,do.store_group, do.indicator
@@ -1733,9 +1741,12 @@ BEGIN
      WHERE do.wh          = wc.pick_wh
        AND wc.active_flag = 'Y'
      ORDER BY do.division, do.dept, do.class, do.subclass;  
-     
-    MERGE INTO zms_zpf_sku_store_group_ovrd zso USING
-    (SELECT DISTINCT zdd.wh, psm.sku,zdd.store,zdd.store_group,zdd.indicator
+      
+     COMMIT;
+        
+     INSERT INTO /*+ APPEND */ zms_zpf_sku_store_group_ovrd  NOLOGGING 
+        (wh, sku,store,store_group, indicator  ) 
+     SELECT DISTINCT zdd.wh, psm.sku,zdd.store,zdd.store_group,zdd.indicator
        FROM zms_temp_dept_stor_group_ovrd zdd, 
             pid_sku_master psm
       WHERE psm.initiated_brand = zdd.division
@@ -1743,46 +1754,46 @@ BEGIN
         AND psm.CLASS     = NVL(zdd.CLASS,psm.CLASS)
         AND psm.SUBCLASS  = NVL(zdd.SUBCLASS,psm.SUBCLASS)
         AND psm.item_archive_status = 'ACTIVE'
-        AND psm.item_status = 'A' 
-        ) dt
-    ON(zso.wh = dt.wh and zso.sku = dt.sku and   nvl(zso.store,-1) = nvl(dt.store,-1) and nvl(zso.store_group,'$$') = nvl(dt.store_group,'$$'))
-    WHEN NOT MATCHED THEN INSERT
-        (wh, sku,store,store_group, data_source, indicator)
-    VALUES (dt.wh, dt.sku,dt.store,dt.store_group, 'OVR', dt.indicator);  
-
-     delete from zms_zpf_sku_store_group_ovrd b
-      where (b.wh,b.sku,b.store,b.store_group) in ( select a.wh,a.sku,a.store,a.store_group 
-                                              from zms_zpf_sku_store_group_ovrd a
-                                             where store is not null and store_group is not null
-                                             group by wh,sku,store,store_group having count(distinct INDICATOR) =2);
+        AND psm.item_status = 'A' ;  
      
-     delete from zms_zpf_sku_store_group_ovrd b
-      where (b.wh,b.sku,b.store ) in ( select a.wh,a.sku,a.store 
-                                              from zms_zpf_sku_store_group_ovrd a
-                                             where store is not null and store_group is null
-                                             group by wh,sku,store having count(distinct INDICATOR) =2);
-     
-     delete  from zms_zpf_sku_store_group_ovrd b
-      where (b.wh,b.sku,b.store_group) in ( select a.wh,a.sku,a.store_group 
-                                              from zms_zpf_sku_store_group_ovrd a
-                                             where store is null and store_group is not null
-                                             group by wh,sku,store,store_group having count(distinct INDICATOR) =2);   
+    COMMIT;
+    
+     INSERT INTO /*+ APPEND */ zms_zpf_sku_store_ovrd  NOLOGGING 
+        (wh, sku,store,indicator  ) 
+      select distinct wh, sku,store,indicator from zms_zpf_sku_store_group_ovrd
+       where store is not null;    
+    
+    COMMIT;    
 
-      delete  from zms_zpf_sku_store_group_ovrd  where INDICATOR='N'; 
+     INSERT INTO /*+ APPEND */ zms_zpf_sku_group_ovrd  NOLOGGING 
+        (wh, sku,store_group,indicator  ) 
+      select distinct wh, sku,store_group,indicator from zms_zpf_sku_store_group_ovrd
+      where store_group is not null; 
 
+    COMMIT;     
+ 
+    
+  for rec in  (SELECT distinct STORE_GROUP FROM zms_zpf_sku_group_ovrd where STORE_GROUP is not null) loop
 
    INSERT INTO zms_zpf_sku_str_replenishment
    SELECT distinct division, group_name, group_id, 
           (case when division in (20,80,90,170) then to_number(1||LPAD(store,4,'0'))  else store  end) store, group_type, creation_date,
           created_by, last_updated_date, last_updated_by, priority_code
      FROM rms_replenishment rr
-    WHERE rr.group_name IN (SELECT distinct STORE_GROUP FROM zms_zpf_sku_store_group_ovrd where STORE_GROUP is not null);   
- 
+    WHERE rr.group_name =rec.STORE_GROUP;  
+
+  end loop;  
+      
+  delete from zms_zpf_sku_str_replenishment a 
+   where a.rowid not in (select max(b.rowid) from zms_zpf_sku_str_replenishment b where a.store=b.store); 
+     
+  COMMIT;
+    
  INSERT INTO zms_zpf_sku_PICK_DAY_STORES (STORE, WH, DIV,store_group)
    SELECT rr.STORE, szsgo.wh wh, szal.div,rr.group_name
    FROM zms_zpf_sku_str_replenishment rr, 
         zms_all_location szal ,
-        (SELECT distinct store_group, wh FROM zms_zpf_sku_store_group_ovrd where STORE_GROUP is not null) szsgo, 
+        (SELECT distinct store_group, wh FROM zms_zpf_sku_group_ovrd where STORE_GROUP is not null) szsgo, 
         (SELECT loc_four_digit FROM zms_all_location
           WHERE loc_type = 'W'
             AND phy_warehouse IS NOT NULL) wzal,
@@ -1797,41 +1808,18 @@ BEGIN
      AND wzal.loc_four_digit = wc.pick_wh
      AND wc.pick_wh          = wc.orig_wh
      AND wc.active_flag      = 'Y' ;   
- 
-    INSERT INTO /*+ APPEND */ zms_zpf_sku_store_override NOLOGGING 
-               (wh, sku, store,div,data_source,indicator) 
-     SELECT zso.wh, zso.sku, zsp.store ,zsp.div,zso.data_source,zso.indicator
-       FROM zms_zpf_sku_store_group_ovrd zso,  
-            zms_zpf_sku_PICK_DAY_STORES zsp
-      WHERE Zso.STORE_GROUP=zsp.STORE_GROUP 
-        AND Zso.STORE_GROUP is not null ; 
-
-     MERGE INTO zms_zpf_sku_store_override pds USING
-    (SELECT DISTINCT zso.wh, zso.sku, zso.store ,zal.div,zso.data_source,zso.indicator
-       FROM zms_zpf_sku_store_group_ovrd zso, zms_all_location zal
-      WHERE zso.store     = zal.loc 
-        AND Zso.store is not null ) dt
-    ON(pds.wh = dt.wh and pds.store = dt.store and  pds.sku = dt.sku  and  pds.div = dt.div)
-    WHEN NOT MATCHED THEN 
-    INSERT (wh, sku,store, div,data_source, indicator)
-    VALUES (dt.wh, dt.sku, dt.store,dt.div,'OVR',dt.indicator); 
-
-    insert into zms_ppf_sku_store_override
-    (wh, sku,store, div,data_source, indicator)
-    select wh, sku,store, div,data_source, indicator from zms_zpf_sku_store_override;
-    
-    insert into zms_kjo_sku_store_override
-    (wh, sku,store, div,data_source, indicator)
-    select wh, sku,store, div,data_source, indicator from zms_zpf_sku_store_override;
+      
+    COMMIT;   
     
    --05042026
    --======================================================================================================================================
    --========END--New Change added part of Adding new columns in zms_ifi_pick_dept_override and zms_ifi_pick_sku_override tables===========
    --======================================================================================================================================
-   SELECT COUNT(*) INTO l_pick_2_cnt FROM zms_zpf_sku_store_override; --05042026
+   SELECT COUNT(*) INTO l_pick_2_cnt FROM zms_zpf_sku_PICK_DAY_STORES; --05042026
+   SELECT COUNT(*) INTO l_pick_3_cnt FROM zms_zpf_sku_store_ovrd; --05042026 
    SELECT COUNT(*) INTO l_pick_cnt FROM  ZMS_ZPF_PICK_DAY_STORES;
 
-   IF l_pick_cnt = 0 and l_pick_2_cnt=0 THEN  --05042026
+   IF l_pick_cnt = 0 and l_pick_2_cnt=0 and l_pick_3_cnt=0 THEN  --05042026
       raise no_pick;
    END IF;
 
@@ -1857,7 +1845,12 @@ BEGIN
     SET dist_type = 'FM';
 
    utl_file.put_line(g_log_fptr, (TO_CHAR(SYSDATE, 'hh24:mi:ss')||' -    Merge dist_type for Fill to Model Stores - zms_zpf_PICK_DAY_STORES: '||SQL%ROWCOUNT));
-   utl_file.fflush(g_log_fptr);
+   utl_file.fflush(g_log_fptr); 
+
+   INSERT INTO zms_zpf_fm_stores  
+   SELECT DISTINCT (case when division in (20,80,90,170) then to_number(1||LPAD(store,4,'0'))  else store  end) store ,'FM' dist_type
+     FROM rms_replenishment rr
+    WHERE group_name LIKE 'FILL_TO_MODEL_%' ;
 
    INSERT INTO zms_ppf_pick_day_stores
       (wh, store, div, data_source, dist_type)
@@ -2013,6 +2006,7 @@ PROCEDURE p_zpf_div_extract_ext (p_is_forecast IN BOOLEAN,
    l_max_ad_date DATE := Get_Vdate + 45;
    l_pick_cnt NUMBER := 0;
    l_pick_2_cnt NUMBER := 0;
+   l_pick_3_cnt NUMBER := 0;
    O_error_message  VARCHAR2(2000);
 
 
@@ -2062,7 +2056,7 @@ BEGIN
        t.tsf_no,         --r.req,
        0   po_line_nbr,
        'T' po_type,              --r.dist_type,
-       DECODE(t.initiated_brand,60,60,150,150,20,20,80,80,90,90,170,170,10),
+       DECODE(t.initiated_brand,60,60,150,150,20,20,80,80,90,90,170,170,10) DIVISION ,
        DECODE(t.ord_qty + (isc.inner_pack_size-MOD(t.ord_qty,isc.inner_pack_size)-isc.inner_pack_size),
           0,isc.inner_pack_size,
           t.ord_qty + (isc.inner_pack_size-MOD(t.ord_qty,isc.inner_pack_size)-isc.inner_pack_size)) ord_qty, --rd.req_qty - rd.pick_qty,
@@ -2090,14 +2084,14 @@ BEGIN
        t.tsf_no orig_req,         --r.req,
        'T' orig_po_type,
        0   pick_process_nbr
-  FROM (SELECT /*+ parallel(th,8) */
-               th.tsf_no, th.item, SUBSTR(th.from_loc,1,4) from_loc, th.to_loc,
+  FROM (SELECT /*+ parallel(td,8) */
+               th.tsf_no, td.item, SUBSTR(th.from_loc,1,4) from_loc, th.to_loc,
                th.tsf_type, th.tsf_type_fm, psm.merch_category,
                CASE WHEN tsf_type_fm IS NOT NULL AND psm.merch_category <> 'Clearance' THEN tsf_type_fm
                     ELSE tsf_type
                     END tsf_type_dt,
-               th.tsf_qty, th.ship_qty, th.distro_qty, th.cust_name,
-               (NVL(th.tsf_qty,0) - NVL(th.ship_qty,0) - NVL(th.distro_qty,0) - NVL(th.cancelled_qty,0)) ord_qty,
+               td.tsf_qty, td.ship_qty, td.distro_qty, th.cust_name,
+               (NVL(td.tsf_qty,0) - NVL(td.ship_qty,0) - NVL(td.distro_qty,0) - NVL(td.cancelled_qty,0)) ord_qty,
                NVL(pds.store, zso.sku) match, get_vdate vdate, psm.initiated_brand
           FROM (SELECT h.tsf_no, SUBSTR(h.from_loc,1,4) from_loc, h.to_loc,
                        CASE WHEN UPPER(SUBSTR(h.comment_desc,1,2)) = 'SO' THEN SUBSTR(h.comment_desc,1,200)
@@ -2109,11 +2103,9 @@ BEGIN
                             END tsf_type,
                        CASE WHEN h.to_loc IN (SELECT store FROM zms_zpf_pick_day_stores WHERE dist_type = 'FM') THEN 'FM'
                             ELSE NULL
-                            END tsf_type_fm,
-                            d.item,d.tsf_qty, d.ship_qty, d.distro_qty,d.cancelled_qty
-                  FROM tsfhead h,tsfdetail d
+                            END tsf_type_fm
+                  FROM tsfhead h
                  WHERE h.status IN ('A','L','S')
-                   and h.tsf_no=d.tsf_no
                    AND h.close_date IS NULL
                    AND h.from_loc_type = 'W'
                    AND h.to_loc_type = 'S'
@@ -2121,21 +2113,16 @@ BEGIN
                    AND ((h.exp_dc_date <= get_vdate + 1)
                        OR (h.tsf_type   = 'PL')
                        OR ((h.tsf_type  = 'MR') AND (h.exp_dc_date IS NULL)))) th,
-               --tsfdetail td, 
-               zms_zpf_pick_day_stores pds, pid_sku_master psm,
+               tsfdetail td, zms_zpf_pick_day_stores pds, pid_sku_master psm,
                (SELECT DISTINCT sku FROM zms_zpf_sku_override
-                 WHERE indicator = 'Y') zso,
-                 zms_zpf_sku_store_override sso
-         WHERE th.tsf_no   = th.tsf_no
+                 WHERE indicator = 'Y') zso
+         WHERE td.tsf_no   = th.tsf_no
            AND th.from_loc = pds.wh(+)
            AND th.to_loc   = pds.store(+)
-           AND th.item     = zso.sku(+)
-           AND th.from_loc = sso.wh(+) 
-           AND th.to_loc   = sso.store(+)  
-           AND th.item     = sso.sku(+)             
-           AND th.item     = psm.sku
-           AND NVL(NVL(pds.store, zso.sku),sso.sku) IS NOT NULL
-           AND (NVL(th.tsf_qty,0) - NVL(th.ship_qty,0) - NVL(th.distro_qty,0) - NVL(th.cancelled_qty,0)) > 0) t,
+           AND td.item     = zso.sku(+)
+           AND td.item     = psm.sku
+           AND NVL(pds.store, zso.sku) IS NOT NULL
+           AND (NVL(td.tsf_qty,0) - NVL(td.ship_qty,0) - NVL(td.distro_qty,0) - NVL(td.cancelled_qty,0)) > 0) t,
          (SELECT DISTINCT item FROM zms_zpf_main_sub) sid,
            --WHERE get_vdate BETWEEN a.start_date and a.end_date) sid,
          item_supp_country isc, zms_ZALE_DIST_TYPE zdt, zms_all_location zal
@@ -2151,7 +2138,174 @@ BEGIN
    utl_file.fflush(g_log_fptr);
 
    COMMIT;
+   
+   INSERT /*+ APPEND */ INTO zms_ZPF_DIV_EXTRACT nologging
+   (STORE,
+    SKU,
+    REQ,
+    po_line_nbr,
+    po_type,
+    DIVISION,
+    ord_qty,
+    store_priority,
+    in_str_date,
+    distro_date,
+    priority,
+    repl_sku_group,
+    watch_priority,
+    dist_type,
+    wh,
+    request_sku,
+    stock_on_hand,
+    cust_name,
+    orig_wh,
+    orig_ord_qty,
+    orig_req,
+    orig_po_type,
+    pick_process_nbr)
+   select to_loc,
+          sku,
+          tsf_no,
+          po_line_nbr,
+          po_type,
+          division,
+          ord_qty,
+          store_priority,
+          in_str_date,
+          distro_date,
+          pick_priority,
+          repl_sku_group,
+          watch_priority,
+          dist_type,    
+          wh,    
+          request_sku,    
+          stock_on_hand    ,
+          cust_name    ,
+          orig_wh,    
+          orig_ord_qty    ,
+          orig_req    ,
+          orig_po_type    ,
+          pick_process_nbr
+ from  
+   (SELECT --/*+ INDEX(isc PK_ITEM_SUPP_COUNTRY) INDEX(R PK_REQ)*/
+       t.to_loc,         --rd.STORE,
+       CASE WHEN tsf_type IN ('MR','SO') THEN t.item
+            WHEN sid.item IS NULL THEN t.item
+            ELSE '-1'
+            END SKU, --rd.sku
+       t.tsf_no,         --r.req,
+       0   po_line_nbr,
+       'T' po_type,              --r.dist_type,
+       DECODE(t.initiated_brand,60,60,150,150,20,20,80,80,90,90,170,170,10) DIVISION ,
+       DECODE(t.ord_qty + (isc.inner_pack_size-MOD(t.ord_qty,isc.inner_pack_size)-isc.inner_pack_size),
+          0,isc.inner_pack_size,
+          t.ord_qty + (isc.inner_pack_size-MOD(t.ord_qty,isc.inner_pack_size)-isc.inner_pack_size)) ord_qty, --rd.req_qty - rd.pick_qty,
+       DECODE(NVL(zal.ups_ind,'N'),'Y', 0,99999) store_priority,
+       NULL in_str_date,             --r.advertising_date,
+       vdate distro_date,
+       --2,
+       zdt.pick_priority,
+       CASE WHEN tsf_type IN ('MR','SO') THEN -1
+            WHEN sid.item IS NULL THEN -1
+            ELSE to_number(t.item)
+            END repl_sku_group,
+       0 watch_priority,
+       --'AP' dist_type,
+       zdt.dist_type,
+       t.from_loc wh,
+       t.item request_sku,
+       0 stock_on_hand,
+       cust_name,
+       substr(t.from_loc,1,4) orig_wh,
+       DECODE(t.ord_qty + (isc.inner_pack_size-mod(t.ord_qty,isc.inner_pack_size)-isc.inner_pack_size),
+          0,isc.inner_pack_size,
+          t.ord_qty + (isc.inner_pack_size-mod(t.ord_qty,isc.inner_pack_size)-isc.inner_pack_size)) orig_ord_qty,  --rd.req_qty - rd.pick_qty,
+       t.tsf_no orig_req,         --r.req,
+       'T' orig_po_type,
+        0   pick_process_nbr
+  FROM (SELECT /*+ parallel(th,8) */
+               th.tsf_no, th.item, SUBSTR(th.from_loc,1,4) from_loc, th.to_loc,
+               th.tsf_type, th.tsf_type_fm, psm.merch_category,
+               CASE WHEN tsf_type_fm IS NOT NULL AND psm.merch_category <> 'Clearance' THEN tsf_type_fm
+                    ELSE tsf_type
+                    END tsf_type_dt,
+               th.tsf_qty, th.ship_qty, th.distro_qty, th.cust_name,
+               (NVL(th.tsf_qty,0) - NVL(th.ship_qty,0) - NVL(th.distro_qty,0) - NVL(th.cancelled_qty,0)) ord_qty,
+                get_vdate vdate, psm.initiated_brand
+          FROM (SELECT h.tsf_no, SUBSTR(h.from_loc,1,4) from_loc, h.to_loc,
+                       CASE WHEN UPPER(SUBSTR(h.comment_desc,1,2)) = 'SO' THEN SUBSTR(h.comment_desc,1,200)
+                            ELSE NULL
+                            END cust_name,
+                       CASE WHEN UPPER(SUBSTR(h.comment_desc,1,2)) = 'SO' THEN 'SO'
+                            WHEN h.to_loc IN (SELECT flex_num FROM zms_store_flex_values WHERE flex_type = 'ZPF') THEN 'NT'
+                            ELSE DECODE(h.tsf_type,'PL','PL','MR','MR','PL')
+                            END tsf_type,
+                       CASE WHEN h.to_loc IN (SELECT store FROM zms_zpf_fm_stores WHERE dist_type = 'FM') THEN 'FM'
+                            ELSE NULL
+                            END tsf_type_fm,
+                            d.item,d.tsf_qty, d.ship_qty, d.distro_qty,d.cancelled_qty
+                  FROM tsfhead h,tsfdetail d
+                 WHERE h.status IN ('A','L','S')
+                   and h.tsf_no=d.tsf_no
+                   AND h.close_date IS NULL
+                   AND h.from_loc_type = 'W'
+                   AND h.to_loc_type = 'S'
+                   AND h.tsf_type NOT IN ('BT','CF')
+                   AND ((h.exp_dc_date <= get_vdate + 1)
+                       OR (h.tsf_type   = 'PL')
+                       OR ((h.tsf_type  = 'MR') AND (h.exp_dc_date IS NULL)))) th,
+               --tsfdetail td, 
+               --zms_zpf_pick_day_stores pds, 
+               pid_sku_master psm 
+               --(SELECT DISTINCT sku FROM zms_zpf_sku_override WHERE indicator = 'Y') zso,
+          WHERE th.tsf_no   = th.tsf_no
+           --AND th.from_loc = pds.wh(+)
+           --AND th.to_loc   = pds.store(+)
+           --AND th.item     = zso.sku(+)           
+           AND th.item     = psm.sku
+           --AND NVL(NVL(pds.store, zso.sku),sso.sku) IS NOT NULL
+           AND (NVL(th.tsf_qty,0) - NVL(th.ship_qty,0) - NVL(th.distro_qty,0) - NVL(th.cancelled_qty,0)) > 0
+           AND not exists (select * from zms_zpf_sku_store_ovrd a where a.wh=th.from_loc and a.sku=th.item and a.store=th.to_loc and a.INDICATOR='N')
+           AND not exists (select * 
+                             from zms_zpf_sku_group_ovrd a,
+                                  zms_zpf_sku_PICK_DAY_STORES b
+                            where a.STORE_GROUP=b.STORE_GROUP
+                              and a.wh=th.from_loc 
+                              and a.sku=th.item 
+                              and b.store=th.to_loc 
+                              and indicator='N'    )   
+           AND (exists (select * from zms_zpf_sku_store_ovrd a where a.wh=th.from_loc and a.sku=th.item and a.store=th.to_loc and a.INDICATOR='Y')
+               OR exists (select * 
+                             from zms_zpf_sku_group_ovrd a,
+                                  zms_zpf_sku_PICK_DAY_STORES b
+                            where a.STORE_GROUP=b.STORE_GROUP
+                              and a.wh=th.from_loc 
+                              and a.sku=th.item 
+                              and b.store=th.to_loc 
+                              and indicator='Y' ))                          
+           ) t,
+         (SELECT DISTINCT item FROM zms_zpf_main_sub) sid,
+           --WHERE get_vdate BETWEEN a.start_date and a.end_date) sid,
+         item_supp_country isc, zms_ZALE_DIST_TYPE zdt, zms_all_location zal
+   WHERE t.item   = sid.item(+)
+     AND t.item   = isc.item
+     AND t.to_loc = zal.loc
+     AND zdt.DIVISION  = zal.store_div
+     AND zdt.dist_type = t.tsf_type_dt
+     AND isc.primary_supp_ind = 'Y'
+     AND isc.primary_country_ind = 'Y'  ) k 
+  where not exists (select 1 
+                    from zms_ZPF_DIV_EXTRACT m 
+                   where m.division= k.division 
+                     and m.store=k.to_loc  
+                     and m.sku= k.SKU
+                     and m.req= k.TSF_NO
+                     and m.repl_sku_group= repl_sku_group
+                     and m.po_type='T'  )  ; 
 
+   utl_file.put_line(g_log_fptr, (TO_CHAR(SYSDATE, 'hh24:mi:ss')||' -    TRANSFERS2       END: '||SQL%ROWCOUNT));
+   utl_file.fflush(g_log_fptr);
+    COMMIT;
    /******************************************************************/
    /* load all requests for skus that are on open allocations        */
    /*
@@ -2223,8 +2377,7 @@ BEGIN
             AND NVL(ad.qty_allocated,0) - NVL(ad.qty_transferred,0) - NVL(ad.qty_distro,0) > 0) a,
          v_item_master im, ZMS_ZALE_DIST_TYPE zdt, zms_zpf_pick_day_stores pds, item_supp_country isc,
          (SELECT DISTINCT sku FROM zms_zpf_sku_override
-           WHERE indicator = 'Y') zso,
-           zms_zpf_sku_store_override sso
+           WHERE indicator = 'Y') zso
    WHERE a.item   = im.item
    --AND im.division <> 150
      AND zdt.DIVISION  = im.division
@@ -2232,19 +2385,121 @@ BEGIN
      AND a.wh          = pds.wh(+)
      AND a.to_loc      = pds.store(+)
      AND a.item        = zso.sku(+)
-     AND a.wh          = sso.wh(+) 
-     AND a.to_loc      = sso.store(+)  
-     AND a.item        = sso.sku(+)       
      AND a.item        = isc.item
      AND isc.primary_supp_ind = 'Y'
      AND isc.primary_country_ind = 'Y'
-     AND nvl(NVL(pds.store, zso.sku),sso.sku) IS NOT NULL);
+     AND NVL(pds.store, zso.sku) IS NOT NULL);
 
    utl_file.put_line(g_log_fptr, (TO_CHAR(SYSDATE, 'hh24:mi:ss')||' -    ALLOCATIONS     END: '||SQL%ROWCOUNT));
    utl_file.fflush(g_log_fptr);
 
    COMMIT;
 
+  INSERT /*+ APPEND */ INTO ZMS_ZPF_DIV_EXTRACT NOLOGGING
+   (STORE,
+    SKU,
+    REQ,
+    po_line_nbr,
+    po_type,
+    DIVISION,
+    ord_qty,
+    store_priority,
+    in_str_date,
+    distro_date,
+    priority,
+    repl_sku_group,
+    watch_priority,
+    dist_type,
+    wh,
+    request_sku,
+    stock_on_hand,
+    orig_wh,
+    orig_ord_qty,
+    orig_req,
+    orig_po_type,
+    pick_process_nbr)
+   (SELECT --/*+INDEX(R PK_REQ)*/
+       a.to_loc    store,
+       a.item      sku,             --rd.sku,
+       a.alloc_no  req,             --r.req,
+       0           po_line_nbr,
+       'A'         po_type,         --r.dist_type,
+       im.division,
+       DECODE(a.ord_qty + (isc.inner_pack_size-MOD(a.ord_qty,isc.inner_pack_size)-isc.inner_pack_size),
+          0,isc.inner_pack_size,
+          a.ord_qty + (isc.inner_pack_size-MOD(a.ord_qty,isc.inner_pack_size)-isc.inner_pack_size)) ord_qty, --rd.req_qty - rd.pick_qty,
+     --NVL(a.qty_allocated,0) - NVL(a.qty_transferred,0) - NVL(a.qty_distro,0) ord_qty, --rd.req_qty - rd.pick_qty,
+       0           store_priority,
+       NULL        in_str_date,     --r.advertising_date,
+       vdate distro_date,
+       --1           priority,
+       zdt.pick_priority,
+       -1          repl_sku_group,  --rd.repl_sku_group,
+       0           watch_priority,
+       'MR'        dist_type,       --zdt.dist_type,
+       SUBSTR(a.wh,1,4) wh,
+       a.item      request_sku,
+       0           stock_on_hand,
+       substr(a.wh,1,4) wh,
+       DECODE(a.ord_qty + (isc.inner_pack_size-MOD(a.ord_qty,isc.inner_pack_size)-isc.inner_pack_size),
+          0,isc.inner_pack_size,
+          a.ord_qty + (isc.inner_pack_size-MOD(a.ord_qty,isc.inner_pack_size)-isc.inner_pack_size)) orig_ord_qty,
+     --NVL(a.qty_allocated,0) - NVL(a.qty_transferred,0) - NVL(a.qty_distro,0) ord_qty,  --rd.req_qty - rd.pick_qty,
+       a.alloc_no  req,              --r.req
+       'A'         orig_po_type,
+       0           pick_process_nbr
+    FROM (SELECT --/*+ ORDERED INDEX(ad PK_ALLOC_DETAIL) */
+            ah.alloc_no, ah.item, SUBSTR(ah.wh,1,4) wh, ad.to_loc, ad.qty_allocated,
+            ad.qty_transferred, ad.qty_distro,
+            (NVL(ad.qty_allocated,0) - NVL(ad.qty_transferred,0) - NVL(ad.qty_distro,0)) ord_qty,
+            get_vdate vdate
+          FROM alloc_header ah, alloc_detail ad
+          WHERE ah.status        = 'A' --r.status IN ('O','P') AND
+            AND ah.alloc_no      = ad.alloc_no
+            AND ah.release_date <= get_vdate + 1
+            AND NVL(ad.qty_allocated,0) - NVL(ad.qty_transferred,0) - NVL(ad.qty_distro,0) > 0
+            ) a,
+         v_item_master im, ZMS_ZALE_DIST_TYPE zdt, --zms_zpf_pick_day_stores pds, 
+         item_supp_country isc 
+         --(SELECT DISTINCT sku FROM zms_zpf_sku_override  WHERE indicator = 'Y') zso,
+   WHERE a.item   = im.item
+   --AND im.division <> 150
+     AND zdt.DIVISION  = im.division
+     AND zdt.dist_type = 'MR'
+    -- AND a.wh          = pds.wh(+)
+     --AND a.to_loc      = pds.store(+)
+     --AND a.item        = zso.sku(+)       
+     AND a.item        = isc.item
+     AND isc.primary_supp_ind = 'Y'
+     AND isc.primary_country_ind = 'Y'
+     --AND nvl(NVL(pds.store, zso.sku),sso.sku) IS NOT NULL 
+     AND not exists (select * from zms_zpf_sku_store_ovrd sso where sso.wh=a.wh and sso.sku=a.item and sso.store=a.to_loc and sso.INDICATOR='N')                              
+     AND not exists (select * from zms_zpf_sku_group_ovrd sso,
+                                   zms_zpf_sku_PICK_DAY_STORES s
+                             where sso.STORE_GROUP=s.STORE_GROUP
+                               and sso.wh=a.wh 
+                               and sso.sku=a.item 
+                               and s.store=a.to_loc 
+                               and sso.indicator='N'    )  
+     AND (exists (select * from zms_zpf_sku_store_ovrd sso where sso.wh=a.wh and sso.sku=a.item and sso.store=a.to_loc and sso.INDICATOR='Y')
+       OR exists (select * from zms_zpf_sku_group_ovrd sso,
+                                zms_zpf_sku_PICK_DAY_STORES s
+                          where sso.STORE_GROUP=s.STORE_GROUP
+                            and sso.wh=a.wh 
+                            and sso.sku=a.item 
+                            and s.store=a.to_loc 
+                            and sso.indicator='Y'    ) )
+     AND not exists (select 1 from     zms_ZPF_DIV_EXTRACT m 
+                      where m.division= im.division 
+                        and m.store=a.to_loc  
+                        and m.sku= a.item
+                        and m.req= a.alloc_no
+                        and m.repl_sku_group= -1
+                        and m.po_type='A'                         
+                     )); 
+   utl_file.put_line(g_log_fptr, (TO_CHAR(SYSDATE, 'hh24:mi:ss')||' -    ALLOCATIONS2     END: '||SQL%ROWCOUNT));
+   utl_file.fflush(g_log_fptr);                     
+   COMMIT;
    dbms_stats.gather_table_stats(
         ownname          => 'ZMS',
         tabname          => 'zms_ZPF_DIV_EXTRACT',
