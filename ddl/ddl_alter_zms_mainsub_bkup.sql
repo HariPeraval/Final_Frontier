@@ -1,0 +1,1 @@
+alter table zms.zms_mainsub_bkup modify (mainsku varchar2 (10)); 
